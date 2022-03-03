@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- Kay Sievers, 2021, Released to the public domain -->
+<!-- Kay Sievers, 2022, Released to the public domain -->
 <html lang="en">
 
 <head>
@@ -106,7 +106,7 @@
     <thead>
       <tr>
         <th>Type</th>
-        <th>Channel</th>
+        <th>Channel/System</th>
         <th>Data</th>
         <th>Timestamp</th>
       </tr>
@@ -201,8 +201,9 @@
 
     const showMessage = (message) => {
       const row = document.createElement('tr');
-
       const type = document.createElement('td');
+
+      let system = null;
       switch (message.data[0] & 0xf0) {
         case 0x80 | (0 << 4):
           type.innerText = 'Note Off';
@@ -221,7 +222,7 @@
           break;
 
         case 0x80 | (4 << 4):
-          type.innerText = 'PrograChange';
+          type.innerText = 'Program Change';
           break;
 
         case 0x80 | (5 << 4):
@@ -233,18 +234,73 @@
           break;
 
         case 0x80 | (7 << 4):
-          type.innerText = 'System:';
+          type.innerText = 'System';
+          system = message.data[0] & 0x0f;
           break;
       }
       row.appendChild(type);
 
       const channel = document.createElement('td');
-      channel.innerText = (message.data[0] & 0x0f) + 1;
+
+      if (system != null) {
+        switch (system) {
+          case 0:
+            channel.innerText = 'Exclusive';
+            break;
+
+          case 1:
+            channel.innerText = 'Time';
+            break;
+
+          case 2:
+            channel.innerText = 'Song Position';
+            break;
+
+          case 3:
+            channel.innerText = 'Song Select';
+            break;
+
+          case 6:
+            channel.innerText = 'Tune Request';
+            break;
+
+          case 7:
+            channel.innerText = 'Exclusive End';
+            break;
+
+          case 8:
+            channel.innerText = 'Clock';
+            break;
+
+          case 10:
+            channel.innerText = 'Start';
+            break;
+
+          case 11:
+            channel.innerText = 'Continue';
+            break;
+
+          case 12:
+            channel.innerText = 'Stop';
+            break;
+
+          case 14:
+            channel.innerText = 'Active Sense';
+            break;
+
+          case 15:
+            channel.innerText = 'Reset';
+            break;
+        }
+
+      } else
+        channel.innerText = (message.data[0] & 0x0f) + 1;
+
       row.appendChild(channel);
 
       const data = document.createElement('td');
-      data.innerText = message.data.slice(1);
       data.style.wordBreak = 'break-all';
+      data.innerText = message.data;
       row.appendChild(data);
 
       const time = document.createElement('td');
