@@ -7,7 +7,6 @@
   <title>Web MIDI Test</title>
   <style>
     .notify {
-      background-color: hsl(0, 0%, 85%);
       padding: 0.5rem;
     }
 
@@ -53,7 +52,7 @@
         <th>ID</th>
         <th>Manufacturer</th>
         <th>Name</th>
-        <th>Type</th>
+        <th>Direction</th>
         <th>Version</th>
         <th>Connection</th>
         <th>State</th>
@@ -71,7 +70,7 @@
         <th>ID</th>
         <th>Manufacturer</th>
         <th>Name</th>
-        <th>Type</th>
+        <th>Direction</th>
         <th>Version</th>
         <th>Connection</th>
         <th>State</th>
@@ -81,7 +80,23 @@
     </tbody>
   </table>
 
-  <h2>Send</h2>
+  <h2>Events</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Type</th>
+        <th>Port ID</th>
+        <th>Name</th>
+        <th>Direction</th>
+        <th>Connection</th>
+        <th>State</th>
+        <th>Timestamp</th>
+      </tr>
+    </thead>
+    <tbody id="events"></tbody>
+  </table>
+
+  <h2>Send MIDI</h2>
   <select id="send">
     <option>Select Device</option>
   </select>
@@ -98,7 +113,7 @@
     <input id="sendControlValue" type="number" value="100" max="127">
   </div>
 
-  <h2>Receive</h2>
+  <h2>Receive MIDI</h2>
   <select id="receive">
     <option>Select Device</option>
   </select>
@@ -116,9 +131,14 @@
   <script>
     'use strict';
 
+    // Notification area to show the connection and error messages.
     const notify = document.getElementById('notify');
+
+    // Log section showing state change messages.
+    const events = document.getElementById('events');
     let midi = null;
 
+    // Send and receive MIDI notes.
     const send = document.getElementById('send');
     let sendDevice = null;
 
@@ -126,6 +146,7 @@
     let receiveDevice = null;
     const receiveMessages = document.getElementById('receiveMessages');
 
+    // Disconnect a device and clear the received MIDI message log.
     const resetInput = () => {
       if (receiveDevice) {
         receiveDevice.onmidimessage = null;
@@ -137,6 +158,44 @@
         receiveMessages.firstChild.remove();
     }
 
+    // Add a state change message.
+    const showEvent = (event) => {
+      const row = document.createElement('tr');
+
+      const type = document.createElement('td');
+      type.innerText = event.type;
+      row.appendChild(type);
+
+      const id = document.createElement('td');
+      id.innerText = event.port.id;
+      row.appendChild(id);
+
+      const name = document.createElement('td');
+      name.innerText = event.port.name;
+      row.appendChild(name);
+
+      const direction = document.createElement('td');
+      direction.innerText = event.port.type;
+      row.appendChild(direction);
+
+      const connection = document.createElement('td');
+      connection.innerText = event.port.connection;
+      row.appendChild(connection);
+
+      const state = document.createElement('td');
+      state.innerText = event.port.state;
+      row.appendChild(state);
+
+      const time = document.createElement('td');
+      time.innerText = event.timeStamp.toFixed(3);
+      row.appendChild(time);
+
+      while (events.childElementCount > 10)
+        events.firstChild.remove();
+      events.appendChild(row);
+    }
+
+    // Update the device list selector.
     const updateSelect = (port, select, connection) => {
       const option = document.createElement('option');
       option.text = port.name;
@@ -145,6 +204,7 @@
       select.appendChild(option);
     }
 
+    // Print the properties of a MIDI port.
     const printPort = (port, list) => {
       const fields = ['id', 'manufacturer', 'name', 'type', 'version', 'connection', 'state'];
 
@@ -163,6 +223,7 @@
       list.appendChild(row);
     }
 
+    // Update the list of ports.
     const updateOutput = () => {
       const output = document.getElementById('output');
 
@@ -199,10 +260,11 @@
       }
     }
 
-    const showMessage = (message) => {
+    // Log a received MIDI message.
+    const showMIDIMessage = (message) => {
       const row = document.createElement('tr');
-      const type = document.createElement('td');
 
+      const type = document.createElement('td');
       let system = null;
       switch (message.data[0] & 0xf0) {
         case 0x80 | (0 << 4):
@@ -304,7 +366,7 @@
       row.appendChild(data);
 
       const time = document.createElement('td');
-      time.innerText = message.timeStamp;
+      time.innerText = message.timeStamp.toFixed(3);
       row.appendChild(time);
 
       while (receiveMessages.childElementCount > 20)
@@ -325,10 +387,7 @@
 
         let counter = 0;
         midi.onstatechange = (event) => {
-          counter++;
-          notify.innerHTML = 'State Change Message #' + counter + ': <i>' + event.port.type + ' ' + event.port.id + '</i>';
-          notify.style.backgroundColor = 'hsl(240, 50%, 90%)';
-
+          showEvent(event);
           updateInput();
           updateOutput();
         }
@@ -358,7 +417,7 @@
 
           receiveDevice = port;
           port.onmidimessage = (message) => {
-            showMessage(message);
+            showMIDIMessage(message);
           };
         });
 
