@@ -1,470 +1,469 @@
 <!DOCTYPE html>
-<!-- Kay Sievers, 2022, Released to the public domain -->
+<!-- Kay Sievers, 2022-2023, Released to the public domain -->
 <html lang="en">
-
-<head>
-  <meta http-equiv="Content-Type" content="text/html;charset=utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Web MIDI Test</title>
-  <style>
-    .notify {
-      padding: 0.5rem;
-    }
-
-    table {
-      margin-bottom: 1rem;
-      width: 100%;
-    }
-
-    th {
-      background-color: hsl(0, 0%, 85%);
-      padding: 0.5rem;
-    }
-
-    td {
-      background-color: hsl(0, 0%, 95%);
-      padding: 0.5rem;
-    }
-
-    select,
-    button {
-      background-color: hsl(0, 0%, 85%);
-      padding: 0.5rem;
-      margin-bottom: 1rem;
-    }
-
-    input {
-      width: 3rem;
-      padding: 0.5rem;
-      margin-bottom: 1rem;
-    }
-  </style>
-</head>
-
-<body>
-  <h1>Web MIDI Test</h1>
-
-  <div id="notify" class="notify"></div>
-
-  <h2>Output Ports</h2>
-  <table>
-    <thead>
-      <tr>
-        <th>ID</th>
-        <th>Manufacturer</th>
-        <th>Name</th>
-        <th>Direction</th>
-        <th>Version</th>
-        <th>Connection</th>
-        <th>State</th>
-      </tr>
-    </thead>
-
-    <tbody id="output">
-    </tbody>
-  </table>
-
-  <h2>Input Ports</h2>
-  <table>
-    <thead>
-      <tr>
-        <th>ID</th>
-        <th>Manufacturer</th>
-        <th>Name</th>
-        <th>Direction</th>
-        <th>Version</th>
-        <th>Connection</th>
-        <th>State</th>
-      </tr>
-    </thead>
-    <tbody id="input">
-    </tbody>
-  </table>
-
-  <h2>Events</h2>
-  <table>
-    <thead>
-      <tr>
-        <th>Type</th>
-        <th>Port ID</th>
-        <th>Name</th>
-        <th>Direction</th>
-        <th>Connection</th>
-        <th>State</th>
-        <th>Timestamp</th>
-      </tr>
-    </thead>
-    <tbody id="events"></tbody>
-  </table>
-
-  <h2>Send MIDI</h2>
-  <select id="send">
-    <option>Select Device</option>
-  </select>
-  <div>
-    <button id="sendNote">Note</button>
-    <input id="sendNoteChannel" type="number" value="1" min="1" max="16">
-    <input id="sendNoteNumber" type="number" value="60" max="127">
-    <input id="sendNoteVelocity" type="number" value="64" max="127">
-  </div>
-  <div>
-    <button id="sendControl">Control Change</Button>
-    <input id="sendControlChannel" type="number" value="1" min="1" max="16">
-    <input id="sendControlNumber" type="number" value="7" max="127">
-    <input id="sendControlValue" type="number" value="100" max="127">
-  </div>
-
-  <h2>Receive MIDI</h2>
-  <select id="receive">
-    <option>Select Device</option>
-  </select>
-  <table>
-    <thead>
-      <tr>
-        <th>Type</th>
-        <th>Channel/System</th>
-        <th>Data</th>
-        <th>Timestamp</th>
-      </tr>
-    </thead>
-    <tbody id="receiveMessages"></tbody>
-  </table>
-  <script>
-    'use strict';
-
-    // Notification area to show the connection and error messages.
-    const notify = document.getElementById('notify');
-
-    // Log section showing state change messages.
-    const events = document.getElementById('events');
-    let midi = null;
-
-    // Send and receive MIDI notes.
-    const send = document.getElementById('send');
-    let sendDevice = null;
-
-    const receive = document.getElementById('receive');
-    let receiveDevice = null;
-    const receiveMessages = document.getElementById('receiveMessages');
-
-    // Disconnect a device and clear the received MIDI message log.
-    const resetInput = () => {
-      if (receiveDevice) {
-        receiveDevice.onmidimessage = null;
-        receiveDevice.close();
-        receiveDevice = null;
+  <head>
+    <meta http-equiv="Content-Type" content="text/html;charset=utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Web MIDI Test</title>
+    <style>
+      .notify {
+        padding: 0.5rem;
       }
 
-      while (receiveMessages.firstChild)
-        receiveMessages.firstChild.remove();
-    }
-
-    // Add a state change message.
-    const showEvent = (event) => {
-      const row = document.createElement('tr');
-
-      const type = document.createElement('td');
-      type.innerText = event.type;
-      row.appendChild(type);
-
-      const id = document.createElement('td');
-      id.innerText = event.port.id;
-      row.appendChild(id);
-
-      const name = document.createElement('td');
-      name.innerText = event.port.name;
-      row.appendChild(name);
-
-      const direction = document.createElement('td');
-      direction.innerText = event.port.type;
-      row.appendChild(direction);
-
-      const connection = document.createElement('td');
-      connection.innerText = event.port.connection;
-      row.appendChild(connection);
-
-      const state = document.createElement('td');
-      state.innerText = event.port.state;
-      row.appendChild(state);
-
-      const time = document.createElement('td');
-      time.innerText = event.timeStamp.toFixed(3);
-      row.appendChild(time);
-
-      while (events.childElementCount > 10)
-        events.firstChild.remove();
-      events.appendChild(row);
-    }
-
-    // Update the device list selector.
-    const updateSelect = (port, select, connection) => {
-      const option = document.createElement('option');
-      option.text = port.name;
-      option.value = port.id;
-      option.selected = port == connection;
-      select.appendChild(option);
-    }
-
-    // Print the properties of a MIDI port.
-    const printPort = (port, list) => {
-      const fields = ['id', 'manufacturer', 'name', 'type', 'version', 'connection', 'state'];
-
-      const row = document.createElement('tr');
-
-      for (const field of fields) {
-        const e = document.createElement('td');
-
-        e.innerText = port[field];
-        if (field == 'connection' && port[field] == 'open')
-          e.style.backgroundColor = 'hsl(120, 50%, 85%)';
-
-        row.appendChild(e);
+      table {
+        margin-bottom: 1rem;
+        width: 100%;
       }
 
-      list.appendChild(row);
-    }
-
-    // Update the list of ports.
-    const updateOutput = () => {
-      const output = document.getElementById('output');
-
-      if (sendDevice && sendDevice.state == 'disconnected')
-        sendDevice = null;
-
-      while (output.firstChild)
-        output.firstChild.remove();
-
-      while (send.childElementCount > 1)
-        send.lastChild.remove();
-
-      for (const port of midi.outputs.values()) {
-        printPort(port, output);
-        updateSelect(port, send, sendDevice);
+      th {
+        background-color: hsl(0, 0%, 85%);
+        padding: 0.5rem;
       }
-    }
 
-    const updateInput = () => {
-      const input = document.getElementById('input');
-
-      if (receiveDevice && receiveDevice.state == 'disconnected')
-        resetInput();
-
-      while (input.firstChild)
-        input.firstChild.remove();
-
-      while (receive.childElementCount > 1)
-        receive.lastChild.remove();
-
-      for (const port of midi.inputs.values()) {
-        printPort(port, input);
-        updateSelect(port, receive, receiveDevice);
+      td {
+        background-color: hsl(0, 0%, 95%);
+        padding: 0.5rem;
       }
-    }
 
-    // Log a received MIDI message.
-    const showMIDIMessage = (message) => {
-      const row = document.createElement('tr');
-
-      const type = document.createElement('td');
-      let system = null;
-      switch (message.data[0] & 0xf0) {
-        case 0x80 | (0 << 4):
-          type.innerText = 'Note Off';
-          break;
-
-        case 0x80 | (1 << 4):
-          type.innerText = 'Note On';
-          break;
-
-        case 0x80 | (2 << 4):
-          type.innerText = 'Aftertouch';
-          break;
-
-        case 0x80 | (3 << 4):
-          type.innerText = 'Control Change';
-          break;
-
-        case 0x80 | (4 << 4):
-          type.innerText = 'Program Change';
-          break;
-
-        case 0x80 | (5 << 4):
-          type.innerText = 'Aftertouch Channel';
-          break;
-
-        case 0x80 | (6 << 4):
-          type.innerText = 'PitchBend';
-          break;
-
-        case 0x80 | (7 << 4):
-          type.innerText = 'System';
-          system = message.data[0] & 0x0f;
-          break;
+      select,
+      button {
+        background-color: hsl(0, 0%, 85%);
+        padding: 0.5rem;
+        margin-bottom: 1rem;
       }
-      row.appendChild(type);
 
-      const channel = document.createElement('td');
+      input {
+        width: 3rem;
+        padding: 0.5rem;
+        margin-bottom: 1rem;
+      }
 
-      if (system != null) {
-        switch (system) {
-          case 0:
-            channel.innerText = 'Exclusive';
-            break;
+    </style>
+  </head>
 
-          case 1:
-            channel.innerText = 'Time';
-            break;
+  <body>
+    <h1>Web MIDI Test</h1>
 
-          case 2:
-            channel.innerText = 'Song Position';
-            break;
+    <div id="notify" class="notify"></div>
 
-          case 3:
-            channel.innerText = 'Song Select';
-            break;
+    <h2>Output Ports</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Manufacturer</th>
+          <th>Name</th>
+          <th>Direction</th>
+          <th>Version</th>
+          <th>Connection</th>
+          <th>State</th>
+        </tr>
+      </thead>
 
-          case 6:
-            channel.innerText = 'Tune Request';
-            break;
+      <tbody id="output">
+      </tbody>
+    </table>
 
-          case 7:
-            channel.innerText = 'Exclusive End';
-            break;
+    <h2>Input Ports</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Manufacturer</th>
+          <th>Name</th>
+          <th>Direction</th>
+          <th>Version</th>
+          <th>Connection</th>
+          <th>State</th>
+        </tr>
+      </thead>
+      <tbody id="input">
+      </tbody>
+    </table>
 
-          case 8:
-            channel.innerText = 'Clock';
-            break;
+    <h2>Events</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Port ID</th>
+          <th>Name</th>
+          <th>Direction</th>
+          <th>Connection</th>
+          <th>State</th>
+          <th>Timestamp</th>
+        </tr>
+      </thead>
+      <tbody id="events"></tbody>
+    </table>
 
-          case 10:
-            channel.innerText = 'Start';
-            break;
+    <h2>Send MIDI</h2>
+    <select id="send">
+      <option>Select Device</option>
+    </select>
+    <div>
+      <button id="sendNote">Note</button>
+      <input id="sendNoteChannel" type="number" value="1" min="1" max="16">
+      <input id="sendNoteNumber" type="number" value="60" max="127">
+      <input id="sendNoteVelocity" type="number" value="64" max="127">
+    </div>
+    <div>
+      <button id="sendControl">Control Change</Button>
+      <input id="sendControlChannel" type="number" value="1" min="1" max="16">
+      <input id="sendControlNumber" type="number" value="7" max="127">
+      <input id="sendControlValue" type="number" value="100" max="127">
+    </div>
 
-          case 11:
-            channel.innerText = 'Continue';
-            break;
+    <h2>Receive MIDI</h2>
+    <select id="receive">
+      <option>Select Device</option>
+    </select>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Channel/System</th>
+          <th>Data</th>
+          <th>Timestamp</th>
+        </tr>
+      </thead>
+      <tbody id="receiveMessages"></tbody>
+    </table>
+    <script>
+      'use strict';
 
-          case 12:
-            channel.innerText = 'Stop';
-            break;
+      // Notification area to show the connection and error messages.
+      const notify = document.getElementById('notify');
 
-          case 14:
-            channel.innerText = 'Active Sense';
-            break;
+      // Log section showing state change messages.
+      const events = document.getElementById('events');
+      let midi = null;
 
-          case 15:
-            channel.innerText = 'Reset';
-            break;
+      // Send and receive MIDI notes.
+      const send = document.getElementById('send');
+      let sendDevice = null;
+
+      const receive = document.getElementById('receive');
+      let receiveDevice = null;
+      const receiveMessages = document.getElementById('receiveMessages');
+
+      // Disconnect a device and clear the received MIDI message log.
+      const resetInput = () => {
+        if (receiveDevice) {
+          receiveDevice.onmidimessage = null;
+          receiveDevice.close();
+          receiveDevice = null;
         }
 
-      } else
-        channel.innerText = (message.data[0] & 0x0f) + 1;
+        while (receiveMessages.firstChild)
+          receiveMessages.firstChild.remove();
+      };
 
-      row.appendChild(channel);
+      // Add a state change message.
+      const showEvent = (event) => {
+        const row = document.createElement('tr');
 
-      const data = document.createElement('td');
-      data.style.wordBreak = 'break-all';
-      data.innerText = message.data;
-      row.appendChild(data);
+        const type = document.createElement('td');
+        type.innerText = event.type;
+        row.appendChild(type);
 
-      const time = document.createElement('td');
-      time.innerText = message.timeStamp.toFixed(3);
-      row.appendChild(time);
+        const id = document.createElement('td');
+        id.innerText = event.port.id;
+        row.appendChild(id);
 
-      while (receiveMessages.childElementCount > 20)
-        receiveMessages.firstChild.remove();
-      receiveMessages.appendChild(row);
+        const name = document.createElement('td');
+        name.innerText = event.port.name;
+        row.appendChild(name);
 
-      receiveMessages.scrollTop = receiveMessages.scrollHeight;
-    }
+        const direction = document.createElement('td');
+        direction.innerText = event.port.type;
+        row.appendChild(direction);
 
-    const connectSystem = () => {
-      navigator.requestMIDIAccess({
-        sysex: true
+        const connection = document.createElement('td');
+        connection.innerText = event.port.connection;
+        row.appendChild(connection);
 
-      }).then((access) => {
-        notify.innerText = 'Connected';
-        notify.style.backgroundColor = 'hsl(120, 50%, 85%)';
-        midi = access;
+        const state = document.createElement('td');
+        state.innerText = event.port.state;
+        row.appendChild(state);
 
-        let counter = 0;
-        midi.onstatechange = (event) => {
-          showEvent(event);
-          updateInput();
-          updateOutput();
+        const time = document.createElement('td');
+        time.innerText = event.timeStamp.toFixed(3);
+        row.appendChild(time);
+
+        while (events.childElementCount > 10)
+          events.firstChild.remove();
+        events.appendChild(row);
+      };
+
+      // Update the device list selector.
+      const updateSelect = (port, select, connection) => {
+        const option = document.createElement('option');
+        option.text = port.name;
+        option.value = port.id;
+        option.selected = port === connection;
+        select.appendChild(option);
+      };
+
+      // Print the properties of a MIDI port.
+      const printPort = (port, list) => {
+        const fields = ['id', 'manufacturer', 'name', 'type', 'version', 'connection', 'state'];
+
+        const row = document.createElement('tr');
+
+        for (const field of fields) {
+          const e = document.createElement('td');
+
+          e.innerText = port[field];
+          if (field === 'connection' && port[field] === 'open')
+            e.style.backgroundColor = 'hsl(120, 50%, 85%)';
+
+          row.appendChild(e);
         }
 
-        updateInput();
-        resetInput();
+        list.appendChild(row);
+      };
 
-        updateOutput();
+      // Update the list of ports.
+      const updateOutput = () => {
+        const output = document.getElementById('output');
 
-        // Select an output port.
-        send.addEventListener('change', () => {
-          if (sendDevice)
-            sendDevice.close();
+        if (sendDevice && sendDevice.state === 'disconnected')
+          sendDevice = null;
 
-          sendDevice = midi.outputs.get(send.value);
-          if (sendDevice)
-            sendDevice.open();
-        });
+        while (output.firstChild)
+          output.firstChild.remove();
 
-        // Connect to the selected input port.
-        receive.addEventListener('change', () => {
+        while (send.childElementCount > 1)
+          send.lastChild.remove();
+
+        for (const port of midi.outputs.values()) {
+          printPort(port, output);
+          updateSelect(port, send, sendDevice);
+        }
+      };
+
+      const updateInput = () => {
+        const input = document.getElementById('input');
+
+        if (receiveDevice && receiveDevice.state === 'disconnected')
           resetInput();
 
-          const port = midi.inputs.get(receive.value);
-          if (!port)
-            return;
+        while (input.firstChild)
+          input.firstChild.remove();
 
-          receiveDevice = port;
-          port.onmidimessage = (message) => {
-            showMIDIMessage(message);
+        while (receive.childElementCount > 1)
+          receive.lastChild.remove();
+
+        for (const port of midi.inputs.values()) {
+          printPort(port, input);
+          updateSelect(port, receive, receiveDevice);
+        }
+      };
+
+      // Log a received MIDI message.
+      const showMIDIMessage = (message) => {
+        const row = document.createElement('tr');
+
+        const type = document.createElement('td');
+        let system = null;
+        switch (message.data[0] & 0xf0) {
+          case 0x80 | (0 << 4):
+            type.innerText = 'Note Off';
+            break;
+
+          case 0x80 | (1 << 4):
+            type.innerText = 'Note On';
+            break;
+
+          case 0x80 | (2 << 4):
+            type.innerText = 'Aftertouch';
+            break;
+
+          case 0x80 | (3 << 4):
+            type.innerText = 'Control Change';
+            break;
+
+          case 0x80 | (4 << 4):
+            type.innerText = 'Program Change';
+            break;
+
+          case 0x80 | (5 << 4):
+            type.innerText = 'Aftertouch Channel';
+            break;
+
+          case 0x80 | (6 << 4):
+            type.innerText = 'PitchBend';
+            break;
+
+          case 0x80 | (7 << 4):
+            type.innerText = 'System';
+            system = message.data[0] & 0x0f;
+            break;
+        }
+        row.appendChild(type);
+
+        const channel = document.createElement('td');
+
+        if (system !== null) {
+          switch (system) {
+            case 0:
+              channel.innerText = 'Exclusive';
+              break;
+
+            case 1:
+              channel.innerText = 'Time';
+              break;
+
+            case 2:
+              channel.innerText = 'Song Position';
+              break;
+
+            case 3:
+              channel.innerText = 'Song Select';
+              break;
+
+            case 6:
+              channel.innerText = 'Tune Request';
+              break;
+
+            case 7:
+              channel.innerText = 'Exclusive End';
+              break;
+
+            case 8:
+              channel.innerText = 'Clock';
+              break;
+
+            case 10:
+              channel.innerText = 'Start';
+              break;
+
+            case 11:
+              channel.innerText = 'Continue';
+              break;
+
+            case 12:
+              channel.innerText = 'Stop';
+              break;
+
+            case 14:
+              channel.innerText = 'Active Sense';
+              break;
+
+            case 15:
+              channel.innerText = 'Reset';
+              break;
+          }
+
+        } else
+          channel.innerText = (message.data[0] & 0x0f) + 1;
+
+        row.appendChild(channel);
+
+        const data = document.createElement('td');
+        data.style.wordBreak = 'break-all';
+        data.innerText = message.data;
+        row.appendChild(data);
+
+        const time = document.createElement('td');
+        time.innerText = message.timeStamp.toFixed(3);
+        row.appendChild(time);
+
+        while (receiveMessages.childElementCount > 20)
+          receiveMessages.firstChild.remove();
+        receiveMessages.appendChild(row);
+
+        receiveMessages.scrollTop = receiveMessages.scrollHeight;
+      };
+
+      const connectSystem = () => {
+        navigator.requestMIDIAccess({
+          sysex: true
+
+        }).then((access) => {
+          notify.innerText = 'Connected';
+          notify.style.backgroundColor = 'hsl(120, 50%, 85%)';
+          midi = access;
+
+          let counter = 0;
+          midi.onstatechange = (event) => {
+            showEvent(event);
+            updateInput();
+            updateOutput();
           };
+
+          updateInput();
+          resetInput();
+
+          updateOutput();
+
+          // Select an output port.
+          send.addEventListener('change', () => {
+            if (sendDevice)
+              sendDevice.close();
+
+            sendDevice = midi.outputs.get(send.value);
+            if (sendDevice)
+              sendDevice.open();
+          });
+
+          // Connect to the selected input port.
+          receive.addEventListener('change', () => {
+            resetInput();
+
+            const port = midi.inputs.get(receive.value);
+            if (!port)
+              return;
+
+            receiveDevice = port;
+            port.onmidimessage = (message) => {
+              showMIDIMessage(message);
+            };
+          });
+
+          document.getElementById('sendNote').addEventListener('mousedown', () => {
+            if (!sendDevice)
+              return;
+
+            const channel = document.getElementById('sendNoteChannel').value - 1;
+            const note = document.getElementById('sendNoteNumber').value;
+            const velocity = document.getElementById('sendNoteVelocity').value;
+            sendDevice.send([0x80 | (1 << 4) | channel, note, velocity]);
+          });
+
+          document.getElementById('sendNote').addEventListener('mouseup', () => {
+            if (!sendDevice)
+              return;
+
+            const channel = document.getElementById('sendNoteChannel').value - 1;
+            const note = document.getElementById('sendNoteNumber').value;
+            sendDevice.send([0x80 | (0 << 4) | channel, note, 64]);
+          });
+
+          document.getElementById('sendControl').addEventListener('click', () => {
+            if (!sendDevice)
+              return;
+
+            const channel = document.getElementById('sendControlChannel').value - 1;
+            const number = document.getElementById('sendControlNumber').value;
+            const value = document.getElementById('sendControlValue').value;
+            sendDevice.send([0x80 | (3 << 4) | channel, number, value]);
+          });
+
+        }, (error) => {
+          notify.innerHTML = 'Unable to access MIDI devices: <i>' + error + '</i>';
+          notify.style.backgroundColor = 'hsl(0, 50%, 85%)';
         });
+      };
 
-        document.getElementById('sendNote').addEventListener('mousedown', () => {
-          if (!sendDevice)
-            return;
+      if (navigator.requestMIDIAccess) {
+        connectSystem();
 
-          const channel = document.getElementById('sendNoteChannel').value - 1;
-          const note = document.getElementById('sendNoteNumber').value;
-          const velocity = document.getElementById('sendNoteVelocity').value;
-          sendDevice.send([0x80 | (1 << 4) | channel, note, velocity]);
-        });
-
-        document.getElementById('sendNote').addEventListener('mouseup', () => {
-          if (!sendDevice)
-            return;
-
-          const channel = document.getElementById('sendNoteChannel').value - 1;
-          const note = document.getElementById('sendNoteNumber').value;
-          sendDevice.send([0x80 | (0 << 4) | channel, note, 64]);
-        });
-
-        document.getElementById('sendControl').addEventListener('click', () => {
-          if (!sendDevice)
-            return;
-
-          const channel = document.getElementById('sendControlChannel').value - 1;
-          const number = document.getElementById('sendControlNumber').value;
-          const value = document.getElementById('sendControlValue').value;
-          sendDevice.send([0x80 | (3 << 4) | channel, number, value]);
-        });
-
-      }, (error) => {
-        notify.innerHTML = 'Unable to access MIDI devices: <i>' + error + '</i>';
+      } else {
+        notify.innerText = 'No WebMIDI support found';
         notify.style.backgroundColor = 'hsl(0, 50%, 85%)';
-      });
-    }
-
-    if (navigator.requestMIDIAccess) {
-      connectSystem();
-
-    } else {
-      notify.innerText = 'No WebMIDI support found';
-      notify.style.backgroundColor = 'hsl(0, 50%, 85%)';
-    }
-  </script>
-</body>
-
+      }
+    </script>
+  </body>
 </html>
